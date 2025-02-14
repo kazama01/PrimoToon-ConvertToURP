@@ -285,8 +285,12 @@
         [HideInInspector] m_end_renderingOptions("Rendering Options", Float) = 0
         //Rendering Options End
     }
-    SubShader{
-        Tags{ "RenderType"="Opaque" "Queue"="Geometry" }
+    SubShader {
+        Tags { 
+            "RenderType" = "Opaque" 
+            "Queue" = "Geometry"
+            "RenderPipeline" = "UniversalPipeline"
+        }
 
         ZWrite [_ZWrite]
 
@@ -298,11 +302,15 @@
         #pragma multi_compile _ UNITY_HDR_ON
         #pragma multi_compile_fog
 
-        #include "UnityCG.cginc"
-        #include "UnityLightingCommon.cginc"
-        #include "UnityShaderVariables.cginc"
+        #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+        #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
+        // #include "UnityLightingCommon.cginc"
+        #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/ShaderVariablesFunctions.hlsl"
+        #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/DeclareDepthTexture.hlsl"
+        #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Shadows.hlsl"
+        // #include "UnityShaderVariables.cginc"
 
-        #include "PrimoToon-inputs.hlsli"
+        #include "Assets/_Assets/Shaders/PrimoToon-inputs.hlsli"
 
 
         /* properties */
@@ -320,8 +328,6 @@
 
         Texture2D _CustomEmissionTex;       SamplerState sampler_CustomEmissionTex;
         Texture2D _CustomEmissionAOTex;     SamplerState sampler_CustomEmissionAOTex;
-
-        UNITY_DECLARE_DEPTH_TEXTURE(_CameraDepthTexture);
 
         float _DayOrNight;
         float _EnvironmentLightingStrength;
@@ -491,7 +497,7 @@
         Pass{
             Name "ForwardBase"
 
-            Tags{ "LightMode" = "ForwardBase" }
+            Tags{ "LightMode" = "UniversalForward" }
 
             Cull [_Cull]
 
@@ -508,7 +514,7 @@
         Pass{
             Name "OutlinePass"
             
-            Tags{ "LightMode" = "ForwardBase" }
+            Tags{ "LightMode" = "UniversalForward" }
 
             Cull Front
 
