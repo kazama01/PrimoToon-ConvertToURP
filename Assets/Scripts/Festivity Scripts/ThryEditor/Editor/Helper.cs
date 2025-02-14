@@ -826,7 +826,8 @@ namespace Thry
                         TextureImporter textureImporter = (TextureImporter)assetImporter;
                         TextureImporterFormat textureFormat = textureImporter.GetPlatformTextureSettings("PC").format;
 #pragma warning disable CS0618
-                        if (textureFormat == TextureImporterFormat.AutomaticCompressed) textureFormat = textureImporter.GetAutomaticFormat("PC");
+                        if ((int)textureFormat == (int)textureImporter.textureCompression)
+                            textureFormat = textureImporter.GetAutomaticFormat("PC");
 #pragma warning restore CS0618
 
                         if (BPP.ContainsKey(textureFormat))
