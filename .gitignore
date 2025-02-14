@@ -1,3 +1,4 @@
+# Unity generated folders
 Assets/Candace/
 Assets/Hai/
 Assets/LightboxScenes/
@@ -14,3 +15,26 @@ Temp/
 Thry/
 *.meta
 *.rsp
+
+# Unity cache and build folders
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+Assets/AssetStoreTools*
+
+# Visual Studio / MonoDevelop generated files
+*.csproj
+*.unityproj
+*.sln
+*.suo
+*.tmp
+*.user
+*.userprefs
+*.pidb
+*.booproj
+
+# OS generated files
+.DS_Store
+Thumbs.db
