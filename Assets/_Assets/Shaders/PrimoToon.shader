@@ -286,7 +286,7 @@
         //Rendering Options End
     }
     SubShader{
-        Tags{ "RenderType"="Opaque" "Queue"="Geometry" }
+        Tags{ "RenderType"="Opaque" "Queue"="Geometry" "RenderPipeline"="UniversalPipeline" }
 
         ZWrite [_ZWrite]
 
@@ -298,9 +298,16 @@
         #pragma multi_compile _ UNITY_HDR_ON
         #pragma multi_compile_fog
 
-        #include "UnityCG.cginc"
-        #include "UnityLightingCommon.cginc"
-        #include "UnityShaderVariables.cginc"
+        // #include "UnityCG.cginc"
+        // #include "UnityLightingCommon.cginc"
+        // #include "UnityShaderVariables.cginc"
+
+        #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+        #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
+        #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/ShaderVariablesFunctions.hlsl"
+         #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/DeclareDepthTexture.hlsl"
+        #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Shadows.hlsl"
+        #include "Packages/com.unity.render-pipelines.universal/Shaders/ShadowCasterPass.hlsl"
 
         #include "PrimoToon-inputs.hlsli"
 
@@ -321,7 +328,7 @@
         Texture2D _CustomEmissionTex;       SamplerState sampler_CustomEmissionTex;
         Texture2D _CustomEmissionAOTex;     SamplerState sampler_CustomEmissionAOTex;
 
-        UNITY_DECLARE_DEPTH_TEXTURE(_CameraDepthTexture);
+        //UNITY_DECLARE_DEPTH_TEXTURE(_CameraDepthTexture);
 
         float _DayOrNight;
         float _EnvironmentLightingStrength;
@@ -489,9 +496,9 @@
         ENDHLSL
 
         Pass{
-            Name "ForwardBase"
+            Name "Forward"
 
-            Tags{ "LightMode" = "ForwardBase" }
+            Tags{ "LightMode" = "UniversalForward" }
 
             Cull [_Cull]
 
@@ -508,7 +515,7 @@
         Pass{
             Name "OutlinePass"
             
-            Tags{ "LightMode" = "ForwardBase" }
+            Tags{ "LightMode" = "SRPDefaultUnlit" }
 
             Cull Front
 

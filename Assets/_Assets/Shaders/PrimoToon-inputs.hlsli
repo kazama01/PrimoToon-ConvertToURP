@@ -5,6 +5,7 @@ struct vsIn{
     vector<float, 2> uv0 : TEXCOORD0;
     vector<float, 2> uv1 : TEXCOORD1;
     vector<float, 4> vertexcol : COLOR0;
+   
 };
 
 struct vsOut{
@@ -15,6 +16,6 @@ struct vsOut{
     vector<float, 4> vertexWS : TEXCOORD1;
     vector<float, 4> screenPos : TEXCOORD2;
     vector<float, 4> vertexOS : TEXCOORD3;
-    UNITY_FOG_COORDS(4)
+    vector<float, 4> fogCoord  : TEXCOORD4;
     vector<float, 4> vertexcol : COLOR0;
 };

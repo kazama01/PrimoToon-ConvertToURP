@@ -1,7 +1,7 @@
 // vertex
 vsOut vert(vsIn v){
     vsOut o;
-    o.pos = UnityObjectToClipPos(v.vertex);
+    o.pos = TransformObjectToHClip(v.vertex);
     o.vertexWS = mul(UNITY_MATRIX_M, v.vertex); // TransformObjectToWorld
     o.vertexOS = v.vertex;
     o.tangent = v.tangent;
@@ -11,13 +11,14 @@ vsOut vert(vsIn v){
     o.screenPos = ComputeScreenPos(o.pos);
     o.vertexcol = (_VertexColorLinear != 0.0) ? VertexColorConvertToLinear(v.vertexcol) : v.vertexcol;
 
-    UNITY_TRANSFER_FOG(o, o.pos);
+    //UNITY_TRANSFER_FOG(o, o.pos);
+    o.fogCoord = ComputeFogFactor(o.pos.z);
 
     return o;
 }
 
 // fragment
-vector<fixed, 4> frag(vsOut i, bool frontFacing : SV_IsFrontFace) : SV_Target{
+vector<half, 4> frag(vsOut i, bool frontFacing : SV_IsFrontFace) : SV_Target{
     // if frontFacing == 1 or _UseBackFaceUV2 == 0, use uv.xy, else uv.zw
     vector<half, 2> newUVs = (frontFacing || !_UseBackFaceUV2) ? i.uv.xy : i.uv.zw;
     // use only uv.xy for face shader
@@ -25,17 +26,17 @@ vector<fixed, 4> frag(vsOut i, bool frontFacing : SV_IsFrontFace) : SV_Target{
     const vector<half, 3> viewDir = normalize(_WorldSpaceCameraPos.xyz - i.vertexWS);
     // get light direction
     const vector<half, 4> lightDir = getlightDir();
-    const vector<half, 3> rawNormalsWS = (frontFacing != 0) ? UnityObjectToWorldNormal(i.normal) : 
-                                                              -UnityObjectToWorldNormal(i.normal);
+    const vector<half, 3> rawNormalsWS = (frontFacing != 0) ? TransformObjectToWorldNormal(i.normal) : 
+                                                              -TransformObjectToWorldNormal(i.normal);
 
 
     /* TEXTURE CREATION */
 
     // the author's code has the xy and zw elements of _TexelSize swapped so I swizzle them here (?????? wtf)
-    vector<fixed, 4> mainTex = SampleTexture2DBicubicFilter(_MainTex, sampler_MainTex, newUVs, _MainTex_TexelSize.zwxy);
-    vector<fixed, 4> lightmapTex = SampleTexture2DBicubicFilter(_LightMapTex, sampler_LightMapTex, newUVs, _LightMapTex_TexelSize.zwxy);
-    vector<fixed, 4> facemapTex = SampleTexture2DBicubicFilter(_FaceMap, sampler_FaceMap, newUVs, _FaceMap_TexelSize.zwxy);
-    vector<fixed, 4> bumpmapTex = SampleTexture2DBicubicFilter(_BumpMap, sampler_BumpMap, newUVs, _BumpMap_TexelSize.zwxy);
+    vector<half, 4> mainTex = SampleTexture2DBicubicFilter(_MainTex, sampler_MainTex, newUVs, _MainTex_TexelSize.zwxy);
+    vector<half, 4> lightmapTex = SampleTexture2DBicubicFilter(_LightMapTex, sampler_LightMapTex, newUVs, _LightMapTex_TexelSize.zwxy);
+    vector<half, 4> facemapTex = SampleTexture2DBicubicFilter(_FaceMap, sampler_FaceMap, newUVs, _FaceMap_TexelSize.zwxy);
+    vector<half, 4> bumpmapTex = SampleTexture2DBicubicFilter(_BumpMap, sampler_BumpMap, newUVs, _BumpMap_TexelSize.zwxy);
 
     /* END OF TEXTURE CREATION */
 
@@ -49,17 +50,17 @@ vector<fixed, 4> frag(vsOut i, bool frontFacing : SV_IsFrontFace) : SV_Target{
     vector<half, 3> finalNormalsWS = rawNormalsWS;
 
     half litFactor;
-    fixed emissionFactor;
-    vector<fixed, 4> metal;
+    half emissionFactor;
+    vector<half, 4> metal;
 
-    vector<fixed, 4> finalColor = 1.0;
+    vector<half, 4> finalColor = 1.0;
 
     /* END OF BUFFER */
 
 
     /* ENVIRONMENT LIGHTING */
 
-    vector<fixed, 4> environmentLighting = calculateEnvLighting(i.vertexWS);
+    vector<half, 4> environmentLighting = calculateEnvLighting(i.vertexWS);
 
     /* END OF ENVIRONMENT LIGHTING */
 
@@ -67,7 +68,7 @@ vector<fixed, 4> frag(vsOut i, bool frontFacing : SV_IsFrontFace) : SV_Target{
     if(_UseFaceMapNew != 0){
         /* TEXTURE CREATION */
 
-        vector<fixed, 4> lightmapTex_mirrored = SampleTexture2DBicubicFilter(_LightMapTex, sampler_LightMapTex, vector<half, 2>(1.0 - i.uv.x, i.uv.y), _LightMapTex_TexelSize.zwxy);
+        vector<half, 4> lightmapTex_mirrored = SampleTexture2DBicubicFilter(_LightMapTex, sampler_LightMapTex, vector<half, 2>(1.0 - i.uv.x, i.uv.y), _LightMapTex_TexelSize.zwxy);
 
         /* END OF TEXTURE CREATION */
 
@@ -75,8 +76,8 @@ vector<fixed, 4> frag(vsOut i, bool frontFacing : SV_IsFrontFace) : SV_Target{
         /* FACE CALCULATION */
 
         // get head directions
-        headForward = normalize(UnityObjectToWorldDir(_headForwardVector.xyz));
-        headRight = normalize(UnityObjectToWorldDir(_headRightVector.xyz));
+        headForward = normalize(mul(unity_ObjectToWorld, float4(_headForwardVector.xyz, 0)).xyz);
+        headRight = normalize(mul(unity_ObjectToWorld, float4(_headRightVector.xyz, 0)).xyz);
 
         // get dot products of each head direction and the lightDir
         half FdotL = dot(normalize(lightDir.xz), headForward.xz);
@@ -87,7 +88,7 @@ vector<fixed, 4> frag(vsOut i, bool frontFacing : SV_IsFrontFace) : SV_Target{
         FdotL = 1 - (FdotL * 0.5 + 0.5);
 
         // get direction of lightmap based on RdotL being above 0.5 or below
-        vector<fixed, 4> lightmapDir = (RdotL <= 0.5) ? lightmapTex_mirrored : lightmapTex;
+        vector<half, 4> lightmapDir = (RdotL <= 0.5) ? lightmapTex_mirrored : lightmapTex;
         
         // use FdotL to drive the face SDF, make sure FdotL has a maximum of 0.999 so that it doesn't glitch
         half shadowRange = min(0.999, FdotL);
@@ -106,20 +107,20 @@ vector<fixed, 4> frag(vsOut i, bool frontFacing : SV_IsFrontFace) : SV_Target{
 
         /* SHADOW RAMP CREATION */
 
-        vector<fixed, 4> ShadowFinal;
+        vector<half, 4> ShadowFinal;
 
         if(_UseShadowRamp != 0){
             vector<half, 2> ShadowRampDayUVs = vector<float, 2>(faceFactor, (((6 - _MaterialID) - 1) * 0.1) + 0.05);
-            vector<fixed, 4> ShadowRampDay = _PackedShadowRampTex.Sample(sampler_PackedShadowRampTex, ShadowRampDayUVs);
+            vector<half, 4> ShadowRampDay = _PackedShadowRampTex.Sample(sampler_PackedShadowRampTex, ShadowRampDayUVs);
 
             vector<half, 2> ShadowRampNightUVs = vector<float, 2>(faceFactor, (((6 - _MaterialID) - 1) * 0.1) + 0.05 + 0.5);
-            vector<fixed, 4> ShadowRampNight = _PackedShadowRampTex.Sample(sampler_PackedShadowRampTex, ShadowRampNightUVs);
+            vector<half, 4> ShadowRampNight = _PackedShadowRampTex.Sample(sampler_PackedShadowRampTex, ShadowRampNightUVs);
 
             ShadowFinal = lerp(ShadowRampNight, ShadowRampDay, _DayOrNight);
         }
         else{
-            vector<fixed, 4> ShadowDay = _FirstShadowMultColor;
-            vector<fixed, 4> ShadowNight = _CoolShadowMultColor;
+            vector<half, 4> ShadowDay = _FirstShadowMultColor;
+            vector<half, 4> ShadowNight = _CoolShadowMultColor;
 
             ShadowFinal = lerp(ShadowDay, ShadowNight, _DayOrNight);
         }
@@ -151,7 +152,7 @@ vector<fixed, 4> frag(vsOut i, bool frontFacing : SV_IsFrontFace) : SV_Target{
 
         vector<half, 3> normalCreationBuffer;
 
-        vector<fixed, 4> modifiedNormalMap;
+        vector<half, 4> modifiedNormalMap;
         modifiedNormalMap.xyz = bumpmapTex.xyz;
         normalCreationBuffer.xy = modifiedNormalMap.xy * 2 - 1;
         normalCreationBuffer.z = max(1 - min(_BumpScale, 0.95), 0.001);
@@ -209,7 +210,7 @@ vector<fixed, 4> frag(vsOut i, bool frontFacing : SV_IsFrontFace) : SV_Target{
         fragCoord = _TextureLineSmoothness * fragCoord + textureLineThickness;
         fragCoord -= textureLineSmoothness;
 
-        vector<fixed, 3> textureLine = bumpmapTex.zzz - textureLineSmoothness.xxx;
+        vector<half, 3> textureLine = bumpmapTex.zzz - textureLineSmoothness.xxx;
 
         fragCoord = 1.0 / fragCoord;
 
@@ -222,7 +223,7 @@ vector<fixed, 4> frag(vsOut i, bool frontFacing : SV_IsFrontFace) : SV_Target{
         // kind of unused
         half textureLineFac = (_TextureLineUse != 0.0) ? textureLine.x : 0.0;
 
-        const vector<fixed, 4> MainTexTintColor = 1.0;
+        const vector<half, 4> MainTexTintColor = 1.0;
 
         // i'm pretty sure this is literally just 0 but i am following decompiled code ok shut up
         vector<half, 3> textureLineCol = _TextureLineMultiplier.xyz * mainTex.xyz - mainTex.xyz * 
@@ -231,7 +232,7 @@ vector<fixed, 4> frag(vsOut i, bool frontFacing : SV_IsFrontFace) : SV_Target{
         textureLine = textureLine * textureLineCol + mainTex.xyz;
 
         // this becomes the new diffuse
-        vector<fixed, 4> newDiffuse = vector<fixed, 4>(textureLine, 1.0);
+        vector<half, 4> newDiffuse = vector<half, 4>(textureLine, 1.0);
 
         /* END OF TEXTURE LINE */
 
@@ -244,7 +245,7 @@ vector<fixed, 4> frag(vsOut i, bool frontFacing : SV_IsFrontFace) : SV_Target{
         NdotL = NdotL * 0.5 + 0.5;
 
         // NdotH, for some reason they don't remap ranges for the specular
-        vector<half, 3> halfVector = normalize(viewDir + _WorldSpaceLightPos0);
+        vector<half, 3> halfVector = normalize(viewDir + GetMainLight().direction);
         half NdotH = dot(finalNormalsWS, halfVector);
 
         /* END OF DOT CREATION */
@@ -273,7 +274,7 @@ vector<fixed, 4> frag(vsOut i, bool frontFacing : SV_IsFrontFace) : SV_Target{
 
         /* SHADOW RAMP CREATION */
 
-        vector<fixed, 4> ShadowFinal;
+        vector<half, 4> ShadowFinal;
         half NdotL_buf;
 
         // create ambient occlusion from lightmap.g
@@ -296,10 +297,10 @@ vector<fixed, 4> frag(vsOut i, bool frontFacing : SV_IsFrontFace) : SV_Target{
             NdotL_buf = NdotL;
 
             vector<half, 2> ShadowRampDayUVs = vector<float, 2>(NdotL, (((6 - materialID) - 1) * 0.1) + 0.05);
-            vector<fixed, 4> ShadowRampDay = _PackedShadowRampTex.Sample(sampler_PackedShadowRampTex, ShadowRampDayUVs);
+            vector<half, 4> ShadowRampDay = _PackedShadowRampTex.Sample(sampler_PackedShadowRampTex, ShadowRampDayUVs);
 
             vector<half, 2> ShadowRampNightUVs = vector<float, 2>(NdotL, (((6 - materialID) - 1) * 0.1) + 0.05 + 0.5);
-            vector<fixed, 4> ShadowRampNight = _PackedShadowRampTex.Sample(sampler_PackedShadowRampTex, ShadowRampNightUVs);
+            vector<half, 4> ShadowRampNight = _PackedShadowRampTex.Sample(sampler_PackedShadowRampTex, ShadowRampNightUVs);
 
             ShadowFinal = lerp(ShadowRampNight, ShadowRampDay, _DayOrNight);
 
@@ -316,8 +317,8 @@ vector<fixed, 4> frag(vsOut i, bool frontFacing : SV_IsFrontFace) : SV_Target{
             // _FirstShadowMultColor parameters into one object
             half globalShadowTransitionRange = _ShadowTransitionRange;
             half globalShadowTransitionSoftness = _ShadowTransitionSoftness;
-            vector<fixed, 4> globalCoolShadowMultColor = _CoolShadowMultColor;
-            vector<fixed, 4> globalFirstShadowMultColor = _FirstShadowMultColor;
+            vector<half, 4> globalCoolShadowMultColor = _CoolShadowMultColor;
+            vector<half, 4> globalFirstShadowMultColor = _FirstShadowMultColor;
 
             if(NdotL < _LightArea){
                 if(materialID == 2){
@@ -367,8 +368,8 @@ vector<fixed, 4> frag(vsOut i, bool frontFacing : SV_IsFrontFace) : SV_Target{
             NdotL_buf = 1.0 - NdotL;
 
             // apply color
-            vector<fixed, 4> ShadowDay = NdotL * globalFirstShadowMultColor;
-            vector<fixed, 4> ShadowNight = NdotL * globalCoolShadowMultColor;
+            vector<half, 4> ShadowDay = NdotL * globalFirstShadowMultColor;
+            vector<half, 4> ShadowNight = NdotL * globalCoolShadowMultColor;
 
             ShadowFinal = lerp(ShadowDay, ShadowNight, _DayOrNight);
 
@@ -473,7 +474,7 @@ vector<fixed, 4> frag(vsOut i, bool frontFacing : SV_IsFrontFace) : SV_Target{
         // use diffuse tex alpha channel for emission mask
         emissionFactor = 0;
 
-        vector<fixed, 4> emission = 0;
+        vector<half, 4> emission = 0;
 
         // toggle between game (independent of custom) emission being on or not
         if(_MainTexAlphaUse == 2.0) emissionFactor = saturate(mainTex.w - 0.03);
@@ -481,11 +482,11 @@ vector<fixed, 4> frag(vsOut i, bool frontFacing : SV_IsFrontFace) : SV_Target{
         // toggle between game-like emission or user's own custom emission texture, idk why i used a switch here btw
         switch(_EmissionType){
             case 0:
-                emission = _EmissionStrength * vector<fixed, 4>(mainTex.xyz, 1) * _EmissionColor;
+                emission = _EmissionStrength * vector<half, 4>(mainTex.xyz, 1) * _EmissionColor;
                 break;
             case 1:
                 emission = _EmissionStrength * _EmissionColor * 
-                        vector<fixed, 4>(_CustomEmissionTex.Sample(sampler_CustomEmissionTex, newUVs).xyz, 1);
+                        vector<half, 4>(_CustomEmissionTex.Sample(sampler_CustomEmissionTex, newUVs).xyz, 1);
                 // apply custom emission factor
                 emissionFactor = saturate(emissionFactor + _CustomEmissionAOTex.Sample(sampler_CustomEmissionAOTex, newUVs).x);
                 break;
@@ -502,14 +503,14 @@ vector<fixed, 4> frag(vsOut i, bool frontFacing : SV_IsFrontFace) : SV_Target{
             // ensure emissionPulse never goes below or above the minimum and maximum values set by the user
             emissionPulse = mapRange(0, 1, _PulseMinStrength, _PulseMaxStrength, emissionPulse);
             // apply pulse
-            emission = lerp((_EmissionType != 0) ? 0 : vector<fixed, 4>(mainTex.xyz, 1) * _EmissionColor, 
+            emission = lerp((_EmissionType != 0) ? 0 : vector<half, 4>(mainTex.xyz, 1) * _EmissionColor, 
                             emission, emissionPulse);
         }
 
         // eye glow stuff
         if(_ToggleEyeGlow != 0 && lightmapTex.g > 0.95){
             emissionFactor += 1;
-            emission = vector<fixed, 4>(mainTex.xyz, 1) * _EyeGlowStrength;
+            emission = vector<half, 4>(mainTex.xyz, 1) * _EyeGlowStrength;
         }
 
         /* END OF EMISSION */
@@ -517,16 +518,16 @@ vector<fixed, 4> frag(vsOut i, bool frontFacing : SV_IsFrontFace) : SV_Target{
 
         /* WEAPON */
 
-        vector<fixed, 3> dissolve = 0.0;
-        vector<fixed, 3> weaponPattern = 0.0;
-        vector<fixed, 3> scanLine = 0.0;
+        vector<half, 3> dissolve = 0.0;
+        vector<half, 3> weaponPattern = 0.0;
+        vector<half, 3> scanLine = 0.0;
         if(_UseWeapon != 0.0){
             vector<half, 2> weaponUVs = (_ProceduralUVs != 0.0) ? (i.vertexOS.zx + 0.25) * 1.5 : i.uv.zw;
 
             /* PATTERN */
 
             vector<half, 2> weaponPatternUVs = _Time * _Pattern_Speed + weaponUVs; // tmp1.xy
-            vector<fixed, 4> weaponPatternTex = SampleTexture2DBicubicFilter(_WeaponPatternTex, sampler_WeaponPatternTex, weaponPatternUVs, _WeaponPatternTex_TexelSize.zwxy);
+            vector<half, 4> weaponPatternTex = SampleTexture2DBicubicFilter(_WeaponPatternTex, sampler_WeaponPatternTex, weaponPatternUVs, _WeaponPatternTex_TexelSize.zwxy);
             half buf = weaponPatternTex;
             weaponPatternTex = sin(((_WeaponDissolveValue - 0.25) * 6.28));
             weaponPatternTex += 1.0;
@@ -534,7 +535,7 @@ vector<fixed, 4> frag(vsOut i, bool frontFacing : SV_IsFrontFace) : SV_Target{
 
             weaponPattern = buf * _WeaponPatternColor;
 
-            //return vector<fixed, 4>(buf.xxx, 1.0);
+            //return vector<half, 4>(buf.xxx, 1.0);
 
             /* END OF PATTERN */
 
@@ -545,7 +546,7 @@ vector<fixed, 4> frag(vsOut i, bool frontFacing : SV_IsFrontFace) : SV_Target{
             buf = (_ScanDirection_Switch != 0.0) ? buf2 : weaponUVs.y;
             half buf4 = _ScanSpeed * _Time.y;
             half buf3 = buf * 0.5 + buf4;
-            vector<fixed, 4> scanTex = _ScanPatternTex.Sample(sampler_ScanPatternTex, vector<half, 2>(weaponUVs.x, buf3));
+            vector<half, 4> scanTex = _ScanPatternTex.Sample(sampler_ScanPatternTex, vector<half, 2>(weaponUVs.x, buf3));
 
             scanLine = scanTex.xyz * _ScanColorScaler * _ScanColor.xyz;
 
@@ -581,7 +582,7 @@ vector<fixed, 4> frag(vsOut i, bool frontFacing : SV_IsFrontFace) : SV_Target{
 
         /* COLOR CREATION */
 
-        vector<fixed, 3> finalDiffuse = ((_TextureLineUse != 0 && _UseBumpMap != 0) ? newDiffuse.xyz : mainTex.xyz);
+        vector<half, 3> finalDiffuse = ((_TextureLineUse != 0 && _UseBumpMap != 0) ? newDiffuse.xyz : mainTex.xyz);
 
         // apply diffuse ramp, apply ramp to metallic part only if metallics is disabled bc metal has its own shadow color
         finalColor.xyz = (metalFactor) ? finalDiffuse : finalDiffuse * ShadowFinal.xyz;
@@ -666,33 +667,34 @@ vector<fixed, 4> frag(vsOut i, bool frontFacing : SV_IsFrontFace) : SV_Target{
     finalColor.xyz = (_RimLightType != 0) ? ColorDodge(rimLight, finalColor.xyz) : finalColor.xyz + rimLight;
 
     // apply fog
-    UNITY_APPLY_FOG(i.fogCoord, finalColor);
+    //UNITY_APPLY_FOG(i.fogCoord, finalColor);
+    finalColor.rgb = MixFog(finalColor.rgb, i.fogCoord);
 
     /* END OF COLOR CREATION */
 
 
     /* DEBUGGING */
 
-    if(_ReturnDiffuseRGB != 0){ return vector<fixed, 4>(mainTex.xyz, 1.0); }
-    if(_ReturnDiffuseA != 0){ return vector<fixed, 4>(mainTex.www, 1.0); }
-    if(_ReturnLightmapR != 0){ return vector<fixed, 4>(lightmapTex.xxx, 1.0); }
-    if(_ReturnLightmapG != 0){ return vector<fixed, 4>(lightmapTex.yyy, 1.0); }
-    if(_ReturnLightmapB != 0){ return vector<fixed, 4>(lightmapTex.zzz, 1.0); }
-    if(_ReturnLightmapA != 0){ return vector<fixed, 4>(lightmapTex.www, 1.0); }
-    if(_ReturnNormalMap != 0){ return vector<fixed, 4>(bumpmapTex.xyz, 1.0); }
-    if(_ReturnTextureLineMap != 0){ return vector<fixed, 4>(bumpmapTex.zzz, 1.0); }
-    if(_ReturnVertexColorR != 0){ return vector<fixed, 4>(i.vertexcol.xxx, 1.0); }
-    if(_ReturnVertexColorG != 0){ return vector<fixed, 4>(i.vertexcol.yyy, 1.0); }
-    if(_ReturnVertexColorB != 0){ return vector<fixed, 4>(i.vertexcol.zzz, 1.0); }
-    if(_ReturnVertexColorA != 0){ return vector<fixed, 4>(i.vertexcol.www, 1.0); }
-    if(_ReturnRimLight != 0){ return vector<fixed, 4>(rimLight.xxx, 1.0); }
-    if(_ReturnNormals != 0){ return vector<fixed, 4>(finalNormalsWS, 1.0); }
-    if(_ReturnRawNormals != 0){ return vector<fixed, 4>(rawNormalsWS, 1.0); }
+    if(_ReturnDiffuseRGB != 0){ return vector<half, 4>(mainTex.xyz, 1.0); }
+    if(_ReturnDiffuseA != 0){ return vector<half, 4>(mainTex.www, 1.0); }
+    if(_ReturnLightmapR != 0){ return vector<half, 4>(lightmapTex.xxx, 1.0); }
+    if(_ReturnLightmapG != 0){ return vector<half, 4>(lightmapTex.yyy, 1.0); }
+    if(_ReturnLightmapB != 0){ return vector<half, 4>(lightmapTex.zzz, 1.0); }
+    if(_ReturnLightmapA != 0){ return vector<half, 4>(lightmapTex.www, 1.0); }
+    if(_ReturnNormalMap != 0){ return vector<half, 4>(bumpmapTex.xyz, 1.0); }
+    if(_ReturnTextureLineMap != 0){ return vector<half, 4>(bumpmapTex.zzz, 1.0); }
+    if(_ReturnVertexColorR != 0){ return vector<half, 4>(i.vertexcol.xxx, 1.0); }
+    if(_ReturnVertexColorG != 0){ return vector<half, 4>(i.vertexcol.yyy, 1.0); }
+    if(_ReturnVertexColorB != 0){ return vector<half, 4>(i.vertexcol.zzz, 1.0); }
+    if(_ReturnVertexColorA != 0){ return vector<half, 4>(i.vertexcol.www, 1.0); }
+    if(_ReturnRimLight != 0){ return vector<half, 4>(rimLight.xxx, 1.0); }
+    if(_ReturnNormals != 0){ return vector<half, 4>(finalNormalsWS, 1.0); }
+    if(_ReturnRawNormals != 0){ return vector<half, 4>(rawNormalsWS, 1.0); }
     if(_ReturnTangents != 0){ return i.tangent; }
     if(_ReturnMetal != 0){ return metal; }
     if(_ReturnEmissionFactor != 0){ return emissionFactor; }
-    if(_ReturnForwardVector != 0){ return vector<fixed, 4>(headForward, 1.0); }
-    if(_ReturnRightVector != 0){ return vector<fixed, 4>(headRight, 1.0); }
+    if(_ReturnForwardVector != 0){ return vector<half, 4>(headForward, 1.0); }
+    if(_ReturnRightVector != 0){ return vector<half, 4>(headRight, 1.0); }
 
     /* END OF DEBUGGING */
 

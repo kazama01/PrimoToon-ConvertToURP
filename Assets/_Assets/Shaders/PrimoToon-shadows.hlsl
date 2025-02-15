@@ -14,14 +14,32 @@ struct v2f{
     UNITY_VERTEX_OUTPUT_STEREO
 };
 
-v2f vert (appdata v){
+float4 GetShadowPositionHClip(appdata v)
+{
+    float3 positionWS = TransformObjectToWorld(v.vertex.xyz);
+    float3 normalWS = TransformObjectToWorldNormal(v.normal);
+
+    #if _CASTING_PUNCTUAL_LIGHT_SHADOW
+        float3 lightDirectionWS = normalize(_LightPosition - positionWS);
+    #else
+        float3 lightDirectionWS = _LightDirection;
+    #endif
+
+    float4 positionCS = TransformWorldToHClip(ApplyShadowBias(positionWS, normalWS, lightDirectionWS));
+    positionCS = ApplyShadowClamping(positionCS);
+    return positionCS;
+}
+
+v2f vert(appdata v) {
     v2f o = (v2f)0;
+    UNITY_SETUP_INSTANCE_ID(v);
+    UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(o);
+    
     o.uv.xy = v.uv0;
     o.uv.zw = v.uv1;
     o.vertexOS = v.vertex;
-    UNITY_SETUP_INSTANCE_ID(v);
-    UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(o);
-    TRANSFER_SHADOW_CASTER_NORMALOFFSET(o)
+    o.pos = GetShadowPositionHClip(v);
+    
     return o;
 }
 
@@ -29,14 +47,14 @@ vector<float, 4> frag (v2f i) : SV_Target{
     UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(i);
 
     // sample textures to objects
-    vector<fixed, 4> mainTex = _MainTex.Sample(sampler_MainTex, vector<half, 2>(i.uv.xy));
+    vector<half, 4> mainTex = _MainTex.Sample(sampler_MainTex, vector<half, 2>(i.uv.xy));
 
     /* WEAPON */
 
     if(_UseWeapon != 0.0){
         vector<half, 2> weaponUVs = (_ProceduralUVs != 0.0) ? (i.vertexOS.zx + 0.25) * 1.5 : i.uv.zw;
 
-        vector<fixed, 3> dissolve = 0.0;
+        vector<half, 3> dissolve = 0.0;
 
         /* DISSOLVE */
 

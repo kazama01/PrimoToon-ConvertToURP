@@ -1,9 +1,16 @@
 /* helper functions */
 
 // light fallback
-vector<half, 4> getlightDir(){
-    vector<half, 4> lightDir = (_WorldSpaceLightPos0 != 0) ? _WorldSpaceLightPos0 :
-                               vector<half, 4>(0, 0, 0, 0) + vector<half, 4>(1, 1, 0, 0);
+vector<half, 4> getlightDir() {
+    Light mainLight = GetMainLight();
+    
+    // Check if light direction is zero using individual components
+    bool isZero = all(mainLight.direction.xyz == float3(0,0,0));
+    
+    // Return appropriate direction as half4
+    vector<half, 4> lightDir = isZero ? 
+                              vector<half, 4>(1, 1, 0, 0) :
+                              vector<half, 4>(mainLight.direction.xyz, 0);
     return lightDir;
 }
 
@@ -21,45 +28,55 @@ float lerpByZ(const float startScale, const float endScale, const float startZ, 
 }
 
 // environment lighting function
-vector<fixed, 4> calculateEnvLighting(vector<float, 3> vertexWSInput){
-    // get all the point light positions
-    vector<half, 3> firstPointLightPos = { unity_4LightPosX0.x, unity_4LightPosY0.x, unity_4LightPosZ0.x };
-    vector<half, 3> secondPointLightPos = { unity_4LightPosX0.y, unity_4LightPosY0.y, unity_4LightPosZ0.y };
-    vector<half, 3> thirdPointLightPos = { unity_4LightPosX0.z, unity_4LightPosY0.z, unity_4LightPosZ0.z };
-    vector<half, 3> fourthPointLightPos = { unity_4LightPosX0.w, unity_4LightPosY0.w, unity_4LightPosZ0.w };
+vector<half, 4> calculateEnvLighting(vector<float, 3> vertexWSInput) {
+    uint lightCount = GetAdditionalLightsCount();
+    
+    // Initialize point lights
+    vector<half, 3> firstPointLight = 0;
+    vector<half, 3> secondPointLight = 0;
+    vector<half, 3> thirdPointLight = 0;
+    vector<half, 3> fourthPointLight = 0;
+    
+    // Process up to 4 additional lights
+    [unroll]
+    for(uint i = 0; i < min(4u, lightCount); i++) {
+        Light light = GetAdditionalLight(i, vertexWSInput);
+        float lightAtten = light.distanceAttenuation;
+        
+        // Calculate attenuation similar to original
+        half adjustedAtten = 2 * rsqrt(1.0 / (lightAtten + 0.0001));
+        
+        // Calculate distance-based attenuation similar to original
+        vector<half, 3> lightPos = light.direction;
+        // Fix color space by using light.color directly without modification
+        vector<half, 3> lightColor = light.color * adjustedAtten;
+            
+        // Assign to appropriate light slot
+        switch(i) {
+            case 0: firstPointLight = lightColor; break;
+            case 1: secondPointLight = lightColor; break;
+            case 2: thirdPointLight = lightColor; break;
+            case 3: fourthPointLight = lightColor; break;
+        }
+    }
 
-    // get all the point light attenuations
-    half firstPointLightAtten = 2 * rsqrt(unity_4LightAtten0.x);
-    half secondPointLightAtten = 2 * rsqrt(unity_4LightAtten0.y);
-    half thirdPointLightAtten = 2 * rsqrt(unity_4LightAtten0.z);
-    half fourthPointLightAtten = 2 * rsqrt(unity_4LightAtten0.w);
-
-    // first, get the distance between each vertex and all of the point light positions,
-    // then invert the result and apply attenuation, saturate to prevent my guy from glowing
-    // lastly, multiply it to the corresponding light's color
-    vector<half, 3> firstPointLight = saturate(lerp(1, 0, distance(vertexWSInput, firstPointLightPos) - 
-                                      firstPointLightAtten)) * unity_LightColor[0];
-    vector<half, 3> secondPointLight = saturate(lerp(1, 0, distance(vertexWSInput, secondPointLightPos) - 
-                                       secondPointLightAtten)) * unity_LightColor[1];
-    vector<half, 3> thirdPointLight = saturate(lerp(1, 0, distance(vertexWSInput, thirdPointLightPos) - 
-                                      thirdPointLightAtten)) * unity_LightColor[2];
-    vector<half, 3> fourthPointLight = saturate(lerp(1, 0, distance(vertexWSInput, thirdPointLightPos) - 
-                                       fourthPointLightAtten)) * unity_LightColor[3];
-
-    // THIS COULD USE SOME IMPROVEMENTS, I DON'T KNOW HOW TO DISABLE THIS FOR SPOT LIGHTS
-    // compare with all of the other point lights
+    // Preserve original light combination logic
     vector<half, 3> pointLightCalc = firstPointLight;
     pointLightCalc = max(pointLightCalc, secondPointLight);
     pointLightCalc = max(pointLightCalc, thirdPointLight);
     pointLightCalc = max(pointLightCalc, fourthPointLight);
 
-    // get the color of whichever's greater between the light direction and the strongest nearby point light
-    vector<fixed, 4> environmentLighting = max(_LightColor0, vector<fixed, 4>(pointLightCalc, 1));
-    // now get whichever's greater than the result of the first and the nearest light probe
+    // Get main light contribution with correct color space
+    Light mainLight = GetMainLight();
+    vector<half, 4> environmentLighting = vector<half, 4>(mainLight.color * mainLight.distanceAttenuation, 1);
+    
+    // Combine with point lights (preserving original logic)
+    environmentLighting = max(environmentLighting, vector<half, 4>(pointLightCalc, 1));
+    
+    // Preserve original ambient calculation
     vector<half, 3> ShadeSH9Alternative = vector<half, 3>(unity_SHAr.w, unity_SHAg.w, unity_SHAb.w) + 
-                                          vector<half, 3>(unity_SHBr.z, unity_SHBg.z, unity_SHBb.z) / 3.0;
-    //environmentLighting = max(environmentLighting, vector<fixed, 4>(ShadeSH9(vector<half, 4>(0, 0, 0, 1)), 1));
-    environmentLighting = max(environmentLighting, vector<fixed, 4>(ShadeSH9Alternative, 1));
+                                        vector<half, 3>(unity_SHBr.z, unity_SHBg.z, unity_SHBb.z) / 3.0;
+    environmentLighting = max(environmentLighting, vector<half, 4>(ShadeSH9Alternative, 1));
 
     return environmentLighting;
 }
@@ -69,15 +86,15 @@ vector<half, 4> calculateRimLight(const vector<float, 3> normalInput, const vect
                                   const float RimLightIntensityInput, const float RimLightThicknessInput, 
                                   const float factor){
     // basically view-space normals, except we cannot use the normal map so get mesh's raw normals
-    vector<half, 3> rimNormals = UnityObjectToWorldNormal(normalInput);
+    vector<half, 3> rimNormals = TransformObjectToWorldNormal(normalInput);
     rimNormals = mul(UNITY_MATRIX_V, rimNormals);
 
     // https://github.com/TwoTailsGames/Unity-Built-in-Shaders/blob/master/CGIncludes/UnityDeferredLibrary.cginc#L152
     vector<half, 2> screenPos = screenPosInput.xy / screenPosInput.w;
 
     // sample depth texture and get it in linear form untouched
-    half linearDepth = SAMPLE_DEPTH_TEXTURE(_CameraDepthTexture, screenPos);
-    linearDepth = LinearEyeDepth(linearDepth);
+    half linearDepth = SampleSceneDepth(screenPos.xy);
+     linearDepth = LinearEyeDepth(linearDepth, _ZBufferParams);
 
     // now we modify screenPos to offset another sampled depth texture
     screenPos = screenPos + (rimNormals.x * (0.00125 * max(_ScreenParams.x * 
@@ -85,8 +102,8 @@ vector<half, 4> calculateRimLight(const vector<float, 3> normalInput, const vect
     screenPos = screenPos + rimNormals.y * 0.001;
 
     // sample depth texture again to another object with modified screenPos
-    half rimDepth = SAMPLE_DEPTH_TEXTURE(_CameraDepthTexture, screenPos);
-    rimDepth = LinearEyeDepth(rimDepth);
+    half rimDepth = SampleSceneDepth(screenPos.xy);
+     rimDepth = LinearEyeDepth(rimDepth, _ZBufferParams);
 
     // now compare the two
     half depthDiff = rimDepth - linearDepth;
@@ -100,15 +117,15 @@ vector<half, 4> calculateRimLight(const vector<float, 3> normalInput, const vect
     return rimLight;
 }
 
-/* https://github.com/penandlim/JL-s-Unity-Blend-Modes/blob/master/John%20Lim's%20Blend%20Modes/CGIncludes/PhotoshopBlendModes.cginc */
+/* https://github.com/penandlim/JL-s-Unity-Blend-Modes/blob/master/John%20Lim's%20Blend% Modes/CGIncludes/PhotoshopBlendModes.cginc */
 
 // color dodge blend mode
-vector<fixed, 3> ColorDodge(const vector<fixed, 3> s, const vector<fixed, 3> d){
+vector<half, 3> ColorDodge(const vector<half, 3> s, const vector<half, 3> d){
     return d / (1.0 - min(s, 0.999));
 }
 
-vector<fixed, 4> ColorDodge(const vector<fixed, 4> s, const vector<fixed, 4> d){
-    return vector<fixed, 4>(d.xyz / (1.0 - min(s.xyz, 0.999)), d.w);
+vector<half, 4> ColorDodge(const vector<half, 4> s, const vector<half, 4> d){
+    return vector<half, 4>(d.xyz / (1.0 - min(s.xyz, 0.999)), d.w);
 }
 
 // https://github.com/cnlohr/shadertrixx/blob/main/README.md#detecting-if-you-are-on-desktop-vr-camera-etc
@@ -150,7 +167,7 @@ void calculateDissolve(out vector<float, 3> input, vector<float, 2> uvs, float f
     buf = _WeaponDissolveValue * 2.1 + buf;
     vector<float, 2> dissolveUVs = vector<float, 2>(uvs.x, buf - 1.0); // tmp1.xy
 
-    vector<fixed, 4> dissolveTex = _WeaponDissolveTex.Sample(sampler_WeaponDissolveTex, dissolveUVs);
+    vector<half, 4> dissolveTex = _WeaponDissolveTex.Sample(sampler_WeaponDissolveTex, dissolveUVs);
     buf = dissolveTex * 3.0 * factor;
     buf = buf * 0.5 + dissolveTex.x;
 
