@@ -29,55 +29,72 @@ float lerpByZ(const float startScale, const float endScale, const float startZ, 
 
 // environment lighting function
 vector<half, 4> calculateEnvLighting(vector<float, 3> vertexWSInput) {
-    uint lightCount = GetAdditionalLightsCount();
-    
     // Initialize point lights
     vector<half, 3> firstPointLight = 0;
     vector<half, 3> secondPointLight = 0;
     vector<half, 3> thirdPointLight = 0;
     vector<half, 3> fourthPointLight = 0;
-    
-    // Process up to 4 additional lights
-    [unroll]
-    for(uint i = 0; i < min(4u, lightCount); i++) {
-        Light light = GetAdditionalLight(i, vertexWSInput);
-        float lightAtten = light.distanceAttenuation;
-        
-        // Calculate attenuation similar to original
-        half adjustedAtten = 2 * rsqrt(1.0 / (lightAtten + 0.0001));
-        
-        // Calculate distance-based attenuation similar to original
-        vector<half, 3> lightPos = light.direction;
-        // Fix color space by using light.color directly without modification
-        vector<half, 3> lightColor = light.color * adjustedAtten;
-            
-        // Assign to appropriate light slot
-        switch(i) {
-            case 0: firstPointLight = lightColor; break;
-            case 1: secondPointLight = lightColor; break;
-            case 2: thirdPointLight = lightColor; break;
-            case 3: fourthPointLight = lightColor; break;
-        }
-    }
+    uint lightIndex = 0;
 
-    // Preserve original light combination logic
+    #if defined(_ADDITIONAL_LIGHTS)
+        #if USE_FORWARD_PLUS
+        // Forward+ specific directional lights
+        UNITY_LOOP 
+        for (uint dirLightIndex = 0; dirLightIndex < min(URP_FP_DIRECTIONAL_LIGHTS_COUNT, MAX_VISIBLE_LIGHTS); dirLightIndex++)
+        {
+            // Remove screen space UV calculation, pass half4(1,1,1,1) for no attenuation
+            Light light = GetAdditionalLight(dirLightIndex, vertexWSInput, half4(1,1,1,1));
+            float lightAtten = light.distanceAttenuation * light.shadowAttenuation;
+            vector<half, 3> lightColor = light.color * lightAtten;
+            
+            if (lightIndex < 4) {
+                switch(lightIndex++) {
+                    case 0: firstPointLight = lightColor; break;
+                    case 1: secondPointLight = lightColor; break;
+                    case 2: thirdPointLight = lightColor; break;
+                    case 3: fourthPointLight = lightColor; break;
+                }
+            }
+        }
+        #endif
+
+        // Regular additional lights
+        float pixelLightCount = GetAdditionalLightsCount();
+        LIGHT_LOOP_BEGIN(pixelLightCount)
+            Light light;
+            #if USE_FORWARD_PLUS
+                light = GetAdditionalLight(lightIndex, vertexWSInput, half4(1,1,1,1));
+            #else
+                light = GetAdditionalLight(lightIndex, vertexWSInput);
+            #endif
+
+            float lightAtten = light.distanceAttenuation * light.shadowAttenuation;
+            vector<half, 3> lightColor = light.color * lightAtten;
+                
+            if (lightIndex < 4) {
+                switch(lightIndex) {
+                    case 0: firstPointLight = lightColor; break;
+                    case 1: secondPointLight = lightColor; break;
+                    case 2: thirdPointLight = lightColor; break;
+                    case 3: fourthPointLight = lightColor; break;
+                }
+            }
+        LIGHT_LOOP_END
+    #endif
+
+    // Combine lights
     vector<half, 3> pointLightCalc = firstPointLight;
     pointLightCalc = max(pointLightCalc, secondPointLight);
     pointLightCalc = max(pointLightCalc, thirdPointLight);
     pointLightCalc = max(pointLightCalc, fourthPointLight);
 
-    // Get main light contribution with correct color space
+    // Get main light
     Light mainLight = GetMainLight();
     vector<half, 4> environmentLighting = vector<half, 4>(mainLight.color * mainLight.distanceAttenuation, 1);
     
-    // Combine with point lights (preserving original logic)
+    // Combine with point lights
     environmentLighting = max(environmentLighting, vector<half, 4>(pointLightCalc, 1));
     
-    // Preserve original ambient calculation
-    vector<half, 3> ShadeSH9Alternative = vector<half, 3>(unity_SHAr.w, unity_SHAg.w, unity_SHAb.w) + 
-                                        vector<half, 3>(unity_SHBr.z, unity_SHBg.z, unity_SHBb.z) / 3.0;
-    environmentLighting = max(environmentLighting, vector<half, 4>(ShadeSH9Alternative, 1));
-
     return environmentLighting;
 }
 
